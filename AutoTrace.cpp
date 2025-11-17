@@ -63,17 +63,51 @@ class CAutoLoggerRegKey : public CExtRegKey
     LPCTSTR m_KeyPath = TEXT("system\\currentcontrolset\\control\\wmi\\autologger\\") LOGGER_LNAME;
 };
 
+typedef struct _tDriverEntry
+{
+    LPCSTR name;
+    LPCTSTR guid;
+} tDriverEntry;
+
+static tDriverEntry SupportedDrivers[] =
+{
+    { "netkvm", TEXT("{5666D67E-281E-43ED-8B8D-4347080198AA}")},
+    { "balloon", TEXT("{08cb9471-36fb-46ee-998b-d1bfbe1c4899}")},
+    { "viofs", TEXT("{3dbdc4e5-4f65-4a2c-b26a-e2a5f91929ab}")},
+    { "viostor", TEXT("{B17FA150-8C45-482E-9EB8-29611A862BF3}")},
+    { "vioscsi", TEXT("{194051B2-14C7-4987-A0E9-154377C58882}")},
+    { "vioinput", TEXT("{66400cc5-ab63-4c03-a3bf-f95ed1a4eca8}")},
+    { "vioserial", TEXT("{08cb5671-36fb-46ee-998b-d1bfbe1c4899}")},
+    { "viosock", TEXT("{C2D7F82F-CE5F-4408-8A37-8B9FE2B3D52E}")},
+};
+
+static const tDriverEntry *FindDriver(const CStringA &Name)
+{
+    for (int i = 0; i < ARRAYSIZE(SupportedDrivers); ++i)
+    {
+        if (!Name.CompareNoCase(SupportedDrivers[i].name))
+        {
+            return &SupportedDrivers[i];
+        }
+    }
+    return NULL;
+}
+
 void CAutoTrace::ConfigureRecording(LPCSTR Device)
 {
-    // TODO: currently netkvm only
     CStringA device = Device;
-    if (device.CompareNoCase("netkvm"))
+    const tDriverEntry* driver = FindDriver(device);
+
+    if (!driver)
     {
         m_Active = 0;
         CAutoLoggerRegKey key;
         key.Delete();
+        m_SelectedDriver = "";
         return;
     }
+
+    m_SelectedDriver = device;
 
     CAutoLoggerRegKey key;
     m_Active = true;
@@ -93,11 +127,11 @@ void CAutoTrace::ConfigureRecording(LPCSTR Device)
 
     CExtRegKey subkey;
 
-    subkey.Create(key, TEXT("{5666D67E-281E-43ED-8B8D-4347080198AA}"));
+    subkey.Create(key, driver->guid);
     subkey.SetDWORDValue(TEXT("Enabled"), 1);
     subkey.SetDWORDValue(TEXT("EnableFlags"), 0x7fffffff);
     subkey.SetDWORDValue(TEXT("EnableLevel"), m_DebugLevel);
-    subkey.SetStringValue(TEXT("Description"), TEXT("netkvm.trace"));
+    subkey.SetStringValue(TEXT("Description"), CStringW(CStringA(driver->name) + ".trace"));
 
 #if TODO_NDIS_LOG
     subkey.Create(key, TEXT("{CDEAD503-17F5-4A3E-B7AE-DF8CC2902EB9}"));
@@ -110,13 +144,14 @@ void CAutoTrace::ConfigureRecording(LPCSTR Device)
 
 void CAutoTrace::SetDebugLevel(ULONG level)
 {
-    if (!m_Active || level < 4)
+    const tDriverEntry* driver = FindDriver(m_SelectedDriver);
+    if (!m_Active || level < 4 || !driver)
     {
         return;
     }
     CAutoLoggerRegKey key;
     CExtRegKey subkey;
-    subkey.Open(key, TEXT("{5666D67E-281E-43ED-8B8D-4347080198AA}"));
+    subkey.Open(key, driver->guid);
     subkey.SetDWORDValue(TEXT("EnableLevel"), level);
     m_DebugLevel = level;
 }
@@ -206,10 +241,9 @@ static void SplitTextFile(const CString &LogName)
     CloseHandle(hLarge);
 }
 
-static void ConvertBinaryToText(LPCTSTR binPath)
+static void ConvertBinaryToText(LPCTSTR binPath, LPCTSTR pdbFile)
 {
     LPCTSTR traceFmt = WORKING_DIR TEXT("\\tracefmt.exe");
-    LPCTSTR pdb = WORKING_DIR TEXT("\\netkvm.pdb");
     CString nextTextLog;
     if (!GetNextFreeFileName(nextTextLog, LOGS_PATH TEXT("%04d.log")))
     {
@@ -218,7 +252,7 @@ static void ConvertBinaryToText(LPCTSTR binPath)
     }
     CProcessRunner converter;
     CString cmdLine;
-    cmdLine.Format(TEXT("%s -nosummary %s -pdb %s -o %s"), traceFmt, binPath, pdb, nextTextLog.GetString());
+    cmdLine.Format(TEXT("%s -nosummary %s -pdb %s -o %s"), traceFmt, binPath, pdbFile, nextTextLog.GetString());
     converter.RunProcess(cmdLine);
     if (DoesFileExist(nextTextLog))
     {
@@ -290,7 +324,12 @@ void CAutoTrace::ProcessEtlFile(ULONG i, bool Move)
     {
         Log("Due to some reason the file exists: %S", srcPath.GetString());
     }
-    ConvertBinaryToText(destPath);
+
+    CString pdb = WORKING_DIR;
+    pdb += '\\';
+    pdb.AppendFormat(TEXT("%S.pdb"), m_SelectedDriver.GetString());
+
+    ConvertBinaryToText(destPath, pdb);
     DeleteFile(destPath);
 }
 
@@ -330,8 +369,10 @@ void CAutoTrace::StopTest()
     RestartLogging();
 }
 
-void CAutoTrace::RetrieveState()
+void CAutoTrace::RetrieveState(LPCSTR Device)
 {
+    m_SelectedDriver = Device;
+
     CAutoLoggerRegKey key;
     key.QueryDWORDValue(TEXT("Start"), m_Active);
     key.QueryDWORDValue(TEXT("FileCounter"), m_FileCounter);
