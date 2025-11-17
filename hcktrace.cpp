@@ -262,7 +262,7 @@ class CLogServiceImplementation : public CServiceImplementation, public CThreadO
 
         LoadCurrentConfiguration();
 
-        m_Trace.RetrieveState();
+        m_Trace.RetrieveState(Settings.m_Device);
 
         ProcessTrigger();
 
@@ -390,7 +390,7 @@ class CLogServiceImplementation : public CServiceImplementation, public CThreadO
         // to be called in app context
         LoadCurrentConfiguration();
         printf("Device=%s, Test=%s\n", Settings.m_Device.GetString(), Settings.m_CurrentTest.GetString());
-        m_Trace.RetrieveState();
+        m_Trace.RetrieveState(Settings.m_Device);
         printf("Trace: %s, status %X, current %d of %d\n",
                m_Trace.m_Active ? "active" : "inactive",
                m_Trace.m_Status,

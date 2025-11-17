@@ -61,7 +61,7 @@ class CAutoTrace
     void StopTest();
     // just ensure that the recording runs;
     void StartTest();
-    void RetrieveState();
+    void RetrieveState(LPCSTR Device);
     void SetDebugLevel(ULONG level);
     void ProcessEtlFile(ULONG i, bool Move);
     ULONG m_Active = 0;
@@ -71,7 +71,7 @@ class CAutoTrace
     ULONG m_DebugLevel = 4;
     CAtlArray<CAutoTraceProvider> m_Providers;
     CMutex m_Mutex;
-
+    CStringA m_SelectedDriver;
   private:
     void RestartLogging();
 };
